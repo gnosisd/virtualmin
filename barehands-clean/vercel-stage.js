@@ -10,7 +10,7 @@ function patch(h,addon){
         // GESTURE SET — 2026-08-16
         // 1) thumb + index touch = MOUSE CLICK (handled below, never drags)
         // 2) thumb + index + middle fingertips together = MOVE / GRAB
-        // 3) thumbs-up = open MY FILES upload menu
+        // 3) back of hand facing camera + all fingers extended = MY FILES
         const tmRel = span > 0 ? Math.hypot(lms[4].x-lms[12].x,lms[4].y-lms[12].y) / span : 9;
         const imRel = span > 0 ? Math.hypot(lms[8].x-lms[12].x,lms[8].y-lms[12].y) / span : 9;
         const trRel = span > 0 ? Math.hypot(lms[4].x-lms[16].x,lms[4].y-lms[16].y) / span : 9;
@@ -69,18 +69,27 @@ function patch(h,addon){
 
   const palm=`const palmOpen = extFingers >= 4 && ratio > 0.8;`;
   const palmNew=`const palmOpen = extFingers >= 4 && ratio > 0.8;
-        // THUMBS-UP = MY FILES. Thumb must point mostly upward while
-        // index/middle/ring/pinky are folded. ~0.4s dwell avoids noise.
-        const _td=Math.hypot(lms[4].x-lms[0].x,lms[4].y-lms[0].y,(lms[4].z||0)-(lms[0].z||0));
-        const _tmd=Math.hypot(lms[2].x-lms[0].x,lms[2].y-lms[0].y,(lms[2].z||0)-(lms[0].z||0));
-        const thumbExtended=_tmd>0 && _td/_tmd>1.45;
-        const thumbDy=lms[0].y-lms[4].y, thumbDx=Math.abs(lms[4].x-lms[0].x);
-        const thumbVertical=thumbDy>0.10 && thumbDy>thumbDx*0.72;
-        const thumbsUp=thumbExtended && thumbVertical && !extArr[0] && !extArr[1] && !extArr[2] && !extArr[3] && !cur.pinched && !cur.mouseDown;
-        if(thumbsUp){
-          cur.fileHold=(cur.fileHold||0)+1;
-          if(cur.fileHold===12 && window.__bhShowUpload && !(window.__bhUploadState?.().open)) window.__bhShowUpload();
-        } else cur.fileHold=0;`;
+        // FILE MENU: BACK of hand faces the camera with ALL FIVE fingers
+        // extended. The handedness-aware 2D palm orientation separates
+        // palm-facing from back-facing; a 0.4s dwell prevents accidental opens.
+        const palmCross=(lms[5].x-lms[0].x)*(lms[17].y-lms[0].y)-
+                        (lms[5].y-lms[0].y)*(lms[17].x-lms[0].x);
+        const handLabel=((res.handednesses||[])[i]||[])[0]?.categoryName||'';
+        const backFacing = handLabel==='Right' ? palmCross < -0.012
+                         : handLabel==='Left'  ? palmCross >  0.012
+                         : Math.abs(palmCross)>0.018;
+        const thumbOpen = tRel > 0.78;
+        const openBackHand = backFacing && extFingers>=4 && thumbOpen &&
+                             ratio>0.72 && !cur.pinched && !cur.mouseDown;
+        if(openBackHand){
+          if(!cur.fileBackT) cur.fileBackT=now;
+          if(now-cur.fileBackT>=400 && now>(cur.fileMenuCd||0) &&
+             window.__bhShowUpload && !(window.__bhUploadState?.().open)){
+            cur.fileMenuCd=now+1800;
+            window.__bhShowUpload();
+            try{toast('BACK HAND — MY FILES',1200);}catch(e){}
+          }
+        } else cur.fileBackT=0;`;
   if(!h.includes(palm)) throw new Error('palm anchor not found');
   h=h.replace(palm,palmNew);
 
@@ -109,7 +118,7 @@ function patch(h,addon){
         }`;
   if(!h.includes(anchor)) throw new Error('knock anchor not found');
   h=h.replace(anchor,knock);
-  h=h.replace('tap the RING = orbs · tap an orb = its tree · TAP a card = open · pinch-drag = move','tap the RING = orbs · tap an orb = its tree · thumb+index = CLICK · thumb+index+middle = MOVE · THUMBS UP = files');
+  h=h.replace('tap the RING = orbs · tap an orb = its tree · TAP a card = open · pinch-drag = move','tap the RING = orbs · tap an orb = its tree · thumb+index = CLICK · thumb+index+middle = MOVE · BACK HAND OPEN = files');
   const hook='\nif (ROLE === "render") {';
   if(!h.includes(hook)) throw new Error('module hook not found');
   return h.replace(hook,'\n'+addon+'\n'+hook);
