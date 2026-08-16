@@ -1,5 +1,7 @@
 const UP='https://raw.githubusercontent.com/jaredrhod/barehands/0a097be1d95069f6121326e05985fc1418e9189f/stage.html';
-function patch(h,addon){
+function patch(h,addon,eye){
+  h=h.replace('import { HandLandmarker, FilesetResolver } from','import { HandLandmarker, FaceLandmarker, FilesetResolver } from');
+
   const old=`cur.pinched = handGarbage ? false
                     : wasPinched ? !relOk
                                  : ratio < (aspect < 2.0 ? 0.38 : 0.32) &&
@@ -7,36 +9,35 @@ function patch(h,addon){
   const neu=`const compactBack = (fR(12,9)+fR(16,13)+fR(20,17))/3;
         const compactContrast = f8v - compactBack;
 
-        // GESTURE SET — 2026-08-16
-        // 1) thumb + index touch = MOUSE CLICK (handled below, never drags)
+        // GESTURE SET
+        // 1) thumb + index touch = MOUSE CLICK (never drags)
         // 2) thumb + index + middle fingertips together = MOVE / GRAB
         // 3) back of hand facing camera + all fingers extended = MY FILES
+        // 4) original force-pull CLAW keeps priority while it is active
+        const forcePullActive=!!(cur.fp && cur.fp.ph>0);
         const tmRel = span > 0 ? Math.hypot(lms[4].x-lms[12].x,lms[4].y-lms[12].y) / span : 9;
         const imRel = span > 0 ? Math.hypot(lms[8].x-lms[12].x,lms[8].y-lms[12].y) / span : 9;
         const trRel = span > 0 ? Math.hypot(lms[4].x-lms[16].x,lms[4].y-lms[16].y) / span : 9;
         const tpRel = span > 0 ? Math.hypot(lms[4].x-lms[20].x,lms[4].y-lms[20].y) / span : 9;
 
-        // The three-finger "cross prayer" grip: thumb/index/middle form
-        // one cluster; ring+pinky must NOT join the cluster (fist guard).
-        const threeMove = ratio < 0.42 && tmRel < 0.46 && imRel < 0.38 &&
+        const threeMove = !forcePullActive && ratio < 0.42 && tmRel < 0.46 && imRel < 0.38 &&
                           f8v > 0.98 && tRel > 0.42 &&
                           trRel > 0.38 && tpRel > 0.42;
         const threeRelease = ratio > 0.54 || tmRel > 0.60 || imRel > 0.52;
 
-        // Keep Jared's original OK-sign lane fully intact. Our three-tip
-        // grip is simply a second way to enter the same grab/move engine.
-        const originalPinch = ratio < (aspect < 2.0 ? 0.38 : 0.32) &&
+        // Keep Jared's original OK-sign lane intact. The three-tip grip is
+        // a second entry into the same native move engine.
+        const originalPinch = !forcePullActive && ratio < (aspect < 2.0 ? 0.38 : 0.32) &&
                               (okNow || cur.okEma > 0.55 || holdingI);
-        const originalHeld = wasPinched && !cur.threeMove && !relOk;
-        const threeHeld = wasPinched && cur.threeMove && !threeRelease;
+        const originalHeld = wasPinched && !cur.threeMove && !relOk && !forcePullActive;
+        const threeHeld = wasPinched && cur.threeMove && !threeRelease && !forcePullActive;
         cur.pinched = handGarbage ? false
                     : (originalHeld || threeHeld || (!wasPinched && (originalPinch || threeMove)));
         cur.threeMove = cur.pinched && (threeMove || threeHeld);
 
-        // User-calibrated CLICK shape: thumb+index touch, other fingers
-        // folded naturally. This does NOT set cur.pinched, so it cannot
-        // drag an item. Release while still over the same target = click.
-        const mouseTouch = !threeMove && ratio < 0.41 &&
+        // User-calibrated CLICK shape. Eye focus gets first choice when it
+        // has a stable highlighted target; otherwise use the hand cursor.
+        const mouseTouch = !forcePullActive && !threeMove && ratio < 0.41 &&
                            f8v > 1.07 && f8v < 1.52 &&
                            compactBack > 0.52 && compactBack < 0.90 &&
                            compactContrast > 0.28 &&
@@ -45,18 +46,15 @@ function patch(h,addon){
                              compactContrast < 0.16 || tRel > 0.76;
         if(mouseTouch && !cur.mouseDown && !cur.pinched){
           cur.mouseDown=true; cur.mouseT=now; cur.mouseX=cur.x; cur.mouseY=cur.y;
-          cur.mouseTarget=hitTest(cur);
+          cur.mouseTarget=(window.__bhEyeTarget&&window.__bhEyeTarget())||hitTest(cur);
           cur.el.classList.add('pinched');
-        } else if(cur.mouseDown && (mouseRelease || threeMove)) {
+        } else if(cur.mouseDown && (mouseRelease || threeMove || forcePullActive)) {
           const ms=now-(cur.mouseT||now);
           const mv=Math.hypot(cur.x-(cur.mouseX||cur.x),cur.y-(cur.mouseY||cur.y));
           const target=cur.mouseTarget;
           cur.mouseDown=false; cur.mouseTarget=null;
           cur.el.classList.toggle('pinched',cur.pinched);
-          if(!threeMove && ms<900 && mv<34 && target && target.el?.isConnected && !target.grabbedBy.length){
-            // Feed a zero-travel press/release into Barehands' native tap
-            // path. Ring/orbs/notes/browser rows/images all keep their
-            // original click meanings without enabling drag.
+          if(!threeMove && !forcePullActive && ms<900 && mv<34 && target && target.el?.isConnected && !target.grabbedBy.length){
             const ox=cur.x, oy=cur.y;
             cur.x=cur.mouseX; cur.y=cur.mouseY; cur.probKill=false;
             beginGrab(target,i,cur); endGrab(target,i,cur);
@@ -70,28 +68,44 @@ function patch(h,addon){
   const palm=`const palmOpen = extFingers >= 4 && ratio > 0.8;`;
   const palmNew=`const palmOpen = extFingers >= 4 && ratio > 0.8;
         // FILE MENU: BACK of hand faces the camera with ALL FIVE fingers
-        // extended. The handedness-aware 2D palm orientation separates
-        // palm-facing from back-facing; a 0.4s dwell prevents accidental opens.
+        // extended. The sign is intentionally the OPPOSITE of the prior
+        // build because the user's RIGHT hand was opening on palm/front.
         const palmCross=(lms[5].x-lms[0].x)*(lms[17].y-lms[0].y)-
                         (lms[5].y-lms[0].y)*(lms[17].x-lms[0].x);
         const handLabel=((res.handednesses||[])[i]||[])[0]?.categoryName||'';
-        const backFacing = handLabel==='Right' ? palmCross < -0.012
-                         : handLabel==='Left'  ? palmCross >  0.012
+        const backFacing = handLabel==='Right' ? palmCross >  0.012
+                         : handLabel==='Left'  ? palmCross < -0.012
                          : Math.abs(palmCross)>0.018;
         const thumbOpen = tRel > 0.78;
         const openBackHand = backFacing && extFingers>=4 && thumbOpen &&
-                             ratio>0.72 && !cur.pinched && !cur.mouseDown;
+                             ratio>0.72 && !cur.pinched && !cur.mouseDown && !forcePullActive;
         if(openBackHand){
           if(!cur.fileBackT) cur.fileBackT=now;
           if(now-cur.fileBackT>=400 && now>(cur.fileMenuCd||0) &&
              window.__bhShowUpload && !(window.__bhUploadState?.().open)){
             cur.fileMenuCd=now+1800;
             window.__bhShowUpload();
-            try{toast('BACK HAND — MY FILES',1200);}catch(e){}
+            try{toast('BACK OF HAND — MY FILES',1200);}catch(e){}
           }
         } else cur.fileBackT=0;`;
   if(!h.includes(palm)) throw new Error('palm anchor not found');
   h=h.replace(palm,palmNew);
+
+  // Relax ONLY the force-pull claw shape. The original transition law still
+  // requires flash-open -> held claw -> aim -> 2 second strain -> snap.
+  // Click/move live below r=.42, so the claw deliberately starts above .55.
+  const clawPattern=/const claw = ratio > \(inClaw \? 0\.68 : 0\.80\) &&[\s\S]*?h16 < \(inClaw \? 1\.6 : 1\.5\);/;
+  if(!clawPattern.test(h)) throw new Error('claw anchor not found');
+  h=h.replace(clawPattern,`const claw = ratio > (inClaw ? 0.46 : 0.55) &&
+                       ratio < (inClaw ? 1.85 : 1.60) &&
+                       c8    < (inClaw ? 0.90 : 0.78) &&
+                       c12   < (inClaw ? 0.75 : 0.55) &&
+                       c16   < (inClaw ? 0.85 : 0.70) &&
+                       cMean < (inClaw ? 0.68 : 0.52) &&
+                       aspect > (inClaw ? 0.80 : 0.90) &&
+                       h8 < (inClaw ? 1.75 : 1.65) &&
+                       h12 < (inClaw ? 1.75 : 1.65) &&
+                       h16 < (inClaw ? 1.75 : 1.65);`);
 
   const anchor=`cur.el.style.left = cur.x + "px"; cur.el.style.top = cur.y + "px";`;
   const knock=anchor+`
@@ -101,7 +115,7 @@ function patch(h,addon){
           const ix=tip.x-_w.x, iy=tip.y-_w.y;
           const kh=cur.knockHist||(cur.knockHist=[]); kh.push({x:ix,y:iy,tx:tip.x,ty:tip.y,t:now});
           while(kh.length && now-kh[0].t>150) kh.shift();
-          if(kh.length>1 && !cur.pinched && extArr[0] && !extArr[1] && !extArr[2] && !extArr[3] && now>(cur.knockCd||0)){
+          if(kh.length>1 && !cur.pinched && !forcePullActive && extArr[0] && !extArr[1] && !extArr[2] && !extArr[3] && now>(cur.knockCd||0)){
             const a=kh[0], b=kh[kh.length-1], kdt=(b.t-a.t)/1000;
             const ks=kdt>0?Math.hypot(b.x-a.x,b.y-a.y)/kdt:0;
             if(ks>720){
@@ -118,7 +132,34 @@ function patch(h,addon){
         }`;
   if(!h.includes(anchor)) throw new Error('knock anchor not found');
   h=h.replace(anchor,knock);
-  h=h.replace('tap the RING = orbs · tap an orb = its tree · TAP a card = open · pinch-drag = move','tap the RING = orbs · tap an orb = its tree · thumb+index = CLICK · thumb+index+middle = MOVE · BACK HAND OPEN = files');
+
+  // Eye tracking runs from the same camera at a lower cadence (~15 Hz).
+  const importBoot='async function boot() {';
+  if(!h.includes(importBoot)) throw new Error('boot anchor not found');
+  h=h.replace(importBoot,eye+'\n\n'+importBoot);
+  const handDone=`minHandPresenceConfidence: 0.5 });`;
+  if(!h.includes(handDone)) throw new Error('hand options anchor not found');
+  h=h.replace(handDone,handDone+`
+  try {
+    faceLandmarker = await FaceLandmarker.createFromOptions(vision, {
+      baseOptions: { modelAssetPath:
+        "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task",
+        delegate: "GPU" },
+      numFaces: 1, runningMode: "VIDEO", outputFaceBlendshapes: true,
+      minFaceDetectionConfidence: 0.5,
+      minFacePresenceConfidence: 0.5,
+      minTrackingConfidence: 0.5 });
+  } catch(e) { faceLandmarker = null; try{toast("eye tracking unavailable",1800);}catch(_){} }`);
+  const detect=`const res = landmarker.detectForVideo(cam, now);`;
+  if(!h.includes(detect)) throw new Error('frame anchor not found');
+  h=h.replace(detect,detect+'\n      updateEyeFocus(now);');
+  const spawn=`spawnStage();\n  toast("barehands v1.0", 2000);`;
+  if(!h.includes(spawn)) throw new Error('spawn anchor not found');
+  h=h.replace(spawn,`spawnStage();
+  if(!EYE.cal) setTimeout(()=>startEyeCalibration(),1800);
+  toast("barehands v1.0 · E = eye calibration", 2400);`);
+
+  h=h.replace('tap the RING = orbs · tap an orb = its tree · TAP a card = open · pinch-drag = move','look = FOCUS · thumb+index = CLICK · thumb+index+middle = MOVE · BACK OF HAND OPEN = files');
   const hook='\nif (ROLE === "render") {';
   if(!h.includes(hook)) throw new Error('module hook not found');
   return h.replace(hook,'\n'+addon+'\n'+hook);
@@ -127,9 +168,13 @@ module.exports=async function(req,res){
   try{
     const r=await fetch(UP,{headers:{'User-Agent':'barehands-clean-vercel'}});
     if(!r.ok) throw new Error('upstream '+r.status);
-    const ar=await fetch('https://raw.githubusercontent.com/gnosisd/virtualmin/aelia-v4/barehands-clean/aelia-addons-v2.js',{headers:{'User-Agent':'barehands-clean-vercel'}});
+    const [ar,er]=await Promise.all([
+      fetch('https://raw.githubusercontent.com/gnosisd/virtualmin/aelia-v4/barehands-clean/aelia-addons-v2.js',{headers:{'User-Agent':'barehands-clean-vercel'}}),
+      fetch('https://raw.githubusercontent.com/gnosisd/virtualmin/aelia-v4/barehands-clean/eye-focus-v2.js',{headers:{'User-Agent':'barehands-clean-vercel'}})
+    ]);
     if(!ar.ok) throw new Error('addon '+ar.status);
-    const h=patch(await r.text(),await ar.text());
+    if(!er.ok) throw new Error('eye addon '+er.status);
+    const h=patch(await r.text(),await ar.text(),await er.text());
     res.setHeader('Content-Type','text/html; charset=utf-8');
     res.setHeader('Cache-Control','no-store');
     res.status(200).send(h);
