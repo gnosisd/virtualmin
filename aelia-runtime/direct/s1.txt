@@ -1,0 +1,22 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Ioannis Kikiras · AELIA</title>
+<body style="margin:0;background:#000;color:#8ff0e4;font-family:system-ui;display:grid;place-items:center;height:100vh">Loading AELIA Spatial Workspace…
+<script>
+(async()=>{
+const RAW='https://raw.githubusercontent.com/jaredrhod/barehands/8450fd3b2de873e60c01f244ff0a5f9146475020/stage.html';
+try{
+ let h=await (await fetch(RAW,{cache:'no-store'})).text();
+ if(!h || !h.includes('<title>barehands</title>')) throw Error('Could not load interaction engine');
+
+ // --- IDENTITY / STARTUP ---
+ h=h.replace('<title>barehands</title>','<title>Ioannis Kikiras · AELIA</title>');
+ h=h.replace('<div id="boot">BAREHANDS<br><span style="color:#a8d8cf;font-size:12px;letter-spacing:0.22em">by jaredrhod</span><br><span style="color:#a8d8cf;font-size:13px">loading hand tracker… allow the camera when asked</span></div>',
+ `<div id="boot">IOANNIS KIKIRAS<br><span style="color:#a8d8cf;font-size:12px;letter-spacing:0.22em">AELIA SPATIAL INTERFACE</span><br><span style="color:#a8d8cf;font-size:13px">loading hand tracker… allow the camera when asked</span></div>`);
+ h=h.replace('let CFG = { name: "Assistant", orbs: [] };','let CFG = { name: "AELIA", orbs: [{title:"Workspace",kind:"notes"},{title:"Props",kind:"media"}] };');
+ h=h.replace('(CFG.name || "ASSISTANT").toUpperCase()','(CFG.name || "AELIA").toUpperCase()');
+ h=h.replace('tap the RING = orbs · tap an orb = its tree · TAP a card = open · pinch-drag = move · hold still ~1s = 3D rotate · two hands = scale · TAP an open item = close · CLAP (palms together, fingers up) = ring center-stage · CLAW: flash open, claw, aim, hold the strain 2s, SNAP = force pull · empty pinch dragged sideways = explode scrub · R respawn / C camera / D debug',
+ 'tap AELIA = library · TAP = open · pinch-drag = move · open pinch = release · hold still ~1s = hand rotation · two hands = scale · INDEX KNOCK = strike item away · CLAP = AELIA center-stage · CLAW = force pull · empty pinch sideways = explode/rebuild · R respawn / C camera / D debug');
+
+ // --- DOCUMENT CARD STYLING ---
+ h=h.replace('</style>',`\n  .card.doccard{border-color:rgba(135,200,255,.75);box-shadow:0 8px 45px rgba(0,0,0,.55),0 0 35px rgba(90,190,255,.24);}\n  .docbadge{position:absolute;left:14px;top:14px;z-index:3;padding:6px 10px;border-radius:8px;background:rgba(3,20,22,.88);border:1px solid rgba(140,240,225,.75);color:#bffbf2;font:700 12px \'SF Mono\',Menlo,monospace;letter-spacing:.08em;}\n  .docname{position:absolute;left:14px;right:14px;bottom:14px;z-index:3;padding:8px 10px;border-r
