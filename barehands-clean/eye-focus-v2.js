@@ -58,7 +58,7 @@ function eyeCalPoint() {
     {k:'right',x:.86,y:.50},
     {k:'up',x:.50,y:.15},
     {k:'down',x:.50,y:.85}
-  ][EYE.calStep];
+  ][EYE.calStep-1];
 }
 
 function eyePlaceDot() {
