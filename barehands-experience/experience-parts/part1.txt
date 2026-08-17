@@ -1,0 +1,69 @@
+// AELIA / Barehands Experience Edition v1
+// Functionality + visual layer only. Original Barehands gesture code is untouched.
+(() => {
+  if (typeof ROLE !== 'undefined' && ROLE === 'render') return;
+  const EXP = {
+    ambient: true,
+    grid: true,
+    trails: true,
+    portals: true,
+    cinema: true,
+    particles: [],
+    imported: new Map(),
+    db: null,
+  };
+
+  const style = document.createElement('style');
+  style.id = 'exp-style';
+  style.textContent = `
+    #exp-space{position:absolute;inset:0;z-index:1;pointer-events:none;overflow:hidden}
+    #exp-space canvas{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
+    #exp-grid{position:absolute;left:-15%;right:-15%;bottom:-31%;height:60%;opacity:.28;
+      background-image:linear-gradient(rgba(84,232,225,.22) 1px,transparent 1px),linear-gradient(90deg,rgba(84,232,225,.22) 1px,transparent 1px);
+      background-size:54px 54px;transform:perspective(500px) rotateX(64deg);transform-origin:center bottom;
+      filter:drop-shadow(0 0 7px rgba(84,232,225,.22));mask-image:linear-gradient(to top,#000 15%,transparent 92%)}
+    #exp-vignette{position:absolute;inset:-8%;background:radial-gradient(circle at 50% 48%,transparent 36%,rgba(0,10,15,.14) 62%,rgba(0,2,6,.62) 100%);pointer-events:none}
+    #exp-scan{position:absolute;inset:0;opacity:.06;background:repeating-linear-gradient(0deg,transparent 0 3px,rgba(148,255,248,.23) 4px);mix-blend-mode:screen}
+    #exp-launch{position:absolute;right:18px;bottom:18px;z-index:9995;width:58px;height:58px;border-radius:50%;
+      border:1px solid rgba(143,240,228,.65);background:radial-gradient(circle,rgba(27,91,90,.87),rgba(4,19,22,.86));
+      box-shadow:0 0 30px rgba(111,229,214,.25),inset 0 0 20px rgba(111,229,214,.1);color:#cffff9;font:700 10px 'SF Mono',monospace;letter-spacing:.08em;cursor:pointer}
+    #exp-launch:hover{box-shadow:0 0 46px rgba(111,229,214,.5),inset 0 0 26px rgba(111,229,214,.2)}
+    #exp-menu{position:absolute;right:18px;bottom:88px;z-index:9994;width:350px;max-height:78vh;overflow:auto;display:none;
+      border:1px solid rgba(143,240,228,.5);border-radius:18px;padding:15px;background:linear-gradient(160deg,rgba(17,55,56,.92),rgba(3,15,19,.94));
+      box-shadow:0 22px 80px rgba(0,0,0,.62),0 0 45px rgba(111,229,214,.18);backdrop-filter:blur(18px);color:#eafff9}
+    #exp-menu.open{display:block;animation:expMenuIn .18s ease-out}
+    @keyframes expMenuIn{from{opacity:0;transform:translateY(12px) scale(.97)}to{opacity:1;transform:none}}
+    #exp-menu h2{margin:0 0 3px;color:#8ff0e4;font:700 14px 'SF Mono',monospace;letter-spacing:.12em}
+    #exp-menu .sub{font:10px 'SF Mono',monospace;color:#91b9b5;margin-bottom:12px;line-height:1.5}
+    .exp-section{border-top:1px solid rgba(143,240,228,.13);padding-top:10px;margin-top:10px}
+    .exp-label{font:700 9px 'SF Mono',monospace;color:#7fbab6;letter-spacing:.15em;margin-bottom:6px}
+    .exp-row{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+    .exp-btn{border:1px solid rgba(143,240,228,.25);border-radius:9px;padding:9px 10px;background:rgba(143,240,228,.055);color:#e9fffb;
+      font:600 10px 'SF Mono',monospace;cursor:pointer;text-align:left}
+    .exp-btn:hover{background:rgba(143,240,228,.13);border-color:rgba(143,240,228,.52)}
+    .exp-btn.hot{background:rgba(111,229,214,.14);border-color:rgba(143,240,228,.55)}
+    .exp-switch{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:7px 2px;font:10px 'SF Mono',monospace;color:#b8dad7}
+    .exp-switch input{accent-color:#70e5da}
+    #exp-library{max-height:160px;overflow:auto;margin-top:6px}
+    .exp-librow{display:flex;justify-content:space-between;gap:8px;padding:7px;border-bottom:1px solid rgba(143,240,228,.1);font:9px 'SF Mono',monospace}
+    .exp-librow button{border:0;background:none;color:#8ff0e4;cursor:pointer;font:700 9px 'SF Mono',monospace}
+    .exp-doc .bar:after{content:attr(data-exp-kind);margin-left:auto;color:#6ddbd2;font:700 9px 'SF Mono',monospace;letter-spacing:.1em}
+    .exp-doc .scroll{white-space:pre-wrap}
+    .exp-html .scroll{white-space:normal}
+    .exp-html .scroll svg{width:100%;height:auto;display:block}
+    .exp-table{width:100%;border-collapse:collapse;font:11px 'SF Mono',monospace}
+    .exp-table td,.exp-table th{border-bottom:1px solid rgba(143,240,228,.12);padding:7px;text-align:left}
+    .exp-table th{color:#8ff0e4}
+    .exp-arrive{animation:expArrive .72s cubic-bezier(.16,.9,.3,1)}
+    @keyframes expArrive{0%{opacity:0;filter:brightness(2.3) blur(9px);transform:scale(.68)}55%{opacity:1;filter:brightness(1.45) blur(0);transform:scale(1.04)}100%{filter:none;transform:none}}
+    .exp-portal{position:absolute;width:30px;height:30px;border:2px solid rgba(143,240,228,.95);border-radius:50%;z-index:9980;pointer-events:none;
+      box-shadow:0 0 20px rgba(143,240,228,.95),inset 0 0 14px rgba(143,240,228,.5);animation:expPortal .78s ease-out forwards}
+    @keyframes expPortal{0%{opacity:.95;transform:translate(-50%,-50%) scale(.3)}65%{opacity:.6;transform:translate(-50%,-50%) scale(8)}100%{opacity:0;transform:translate(-50%,-50%) scale(11)}}
+    .exp-flash{position:absolute;z-index:1;inset:0;pointer-events:none;background:radial-gradient(circle at 50% 50%,rgba(143,240,228,.19),transparent 44%);animation:expFlash .55s ease-out forwards}
+    @keyframes expFlash{from{opacity:1}to{opacity:0}}
+    .exp-toast{position:absolute;left:50%;top:16px;transform:translateX(-50%);z-index:9996;color:#dffffa;background:rgba(2,15,18,.8);
+      border:1px solid rgba(143,240,228,.28);padding:8px 13px;border-radius:9px;font:10px 'SF Mono',monospace;pointer-events:none;animation:expToast 1.9s forwards}
+    @keyframes expToast{0%{opacity:0;transform:translate(-50%,-8px)}12%,75%{opacity:1;transform:translate(-50%,0)}100%{opacity:0}}
+    body.exp-cinema .card:not(.ringcard), body.exp-cinema .panel{box-shadow:0 14px 55px rgba(0,0,0,.5),0 0 36px rgba(111,229,214,.17),inset 0 1px 0 rgba(210,255,248,.52)}
+  `;
+  document.head.appendChild(sty
