@@ -59,4 +59,61 @@
 
   rebuildMyFilesTree().catch(()=>{});
   addEventListener('keydown',e=>{if(e.key==='u'||e.key==='U')showUpload();if(e.key==='Escape')hideUpload();});
+
+  // CLICK PROFILE v2 — fitted to Ioannis' 2026-08-17 sample.
+  // Tight thumb/index contact is the primary signal. The other fingers are
+  // intentionally NOT required because their geometry varied heavily in the
+  // sample while the real contact stayed around r 0.15–0.18.
+  if(typeof AELIA_CTRL!=='undefined'){
+    const clickPose=new Map(), clickRun=new Map();
+    const baseClassify=AELIA_CTRL.classifyHand;
+    AELIA_CTRL.classifyHand=function(i,lms,meta,now){
+      const g=baseClassify(i,lms,meta,now);
+      const d=(a,b)=>Math.hypot(lms[a].x-lms[b].x,lms[a].y-lms[b].y,(lms[a].z||0)-(lms[b].z||0));
+      const span=meta?.span||d(0,9)||.001;
+      const r=Number.isFinite(meta?.ratio)?meta.ratio:d(4,8)/span;
+      const f8=Number.isFinite(meta?.f8v)?meta.f8v:d(8,0)/(d(5,0)||.001);
+      const t=Number.isFinite(meta?.tRel)?meta.tRel:d(4,13)/span;
+      const s=clickPose.get(i)||{down:false};
+      const enter=r<=.30&&f8>=.94&&f8<=1.82&&t>=.45&&t<=1.15;
+      const keep=s.down&&r<.47&&f8>=.84&&f8<=2.00&&t>=.36&&t<=1.32;
+      const blocked=!!g.grab||!!g.backMenuPose||!!g.clawPose||!!g.fist;
+      if(!blocked&&(enter||keep)){
+        s.down=true;
+        g.click=true;g.grab=false;g.state='CLICK';
+        g.scores=g.scores||{};g.scores.CLICK=1;
+      }else if(s.down&&(blocked||r>=.47||f8<.84||f8>2.00||t<.36||t>1.32)){
+        s.down=false;
+      }
+      clickPose.set(i,s);
+      return g;
+    };
+
+    // Hand hit-test wins over gaze. Gaze is only used when the hand cursor is
+    // not directly over an item. Release hysteresis and a generous motion
+    // allowance make a human pinch behave much more like a real mouse click.
+    AELIA_CTRL.handleClick=function(i,cur,g,now){
+      const s=clickRun.get(i)||{down:false,target:null};
+      const forcePull=!!cur.fp?.ph;
+      if(g.click&&!s.down&&!g.grab&&!forcePull){
+        s.down=true;s.t=now;s.x=cur.x;s.y=cur.y;
+        s.target=hitTest(cur)||AELIA_CTRL.eyeTarget?.()||null;
+        cur.el.classList.add('pinched');
+        if(s.target?.el)s.target.el.classList.add('aelia-armed');
+      }
+      if(s.down&&(!g.click||g.grab||forcePull)){
+        const target=s.target,ms=now-(s.t||now),mv=Math.hypot(cur.x-(s.x??cur.x),cur.y-(s.y??cur.y));
+        s.down=false;s.target=null;
+        if(target?.el)target.el.classList.remove('aelia-armed');
+        cur.el.classList.toggle('pinched',!!g.grab);
+        if(!g.grab&&!forcePull&&ms<1250&&mv<130&&target&&target.el?.isConnected&&!target.grabbedBy.length){
+          const ox=cur.x,oy=cur.y,r=target.el.getBoundingClientRect();
+          cur.x=(r.left+r.right)/2;cur.y=(r.top+r.bottom)/2;cur.probKill=false;
+          beginGrab(target,i,cur);endGrab(target,i,cur);
+          cur.x=ox;cur.y=oy;
+        }
+      }
+      clickRun.set(i,s);
+    };
+  }
 })();
