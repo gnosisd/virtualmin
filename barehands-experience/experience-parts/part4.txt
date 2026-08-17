@@ -1,0 +1,55 @@
+UID():(Date.now()+'-'+Math.random());
+    const rec={id,name:file.name,type:file.type,kind:c.kind,text:c.text||'',blob:c.blob||null,created:Date.now()};await expStore(rec);expOpenRecord(rec);return rec;
+  }
+  function expOpenRecord(r){
+    if(r.kind==='MEDIA'&&r.blob){const u=URL.createObjectURL(r.blob),it=makeImage(u,r.name);it.x=innerWidth*.56;it.y=innerHeight*.47;it.anim={k:'in',t:0};it.el.style.opacity='.05';items.push(it);return}
+    expMakePanel(r.name,r.text||'(empty)',r.kind,.54,.46,.86);
+  }
+  function expRenderLibrary(){const box=document.querySelector('#exp-library');if(!box)return;const rows=[...EXP.imported.values()].sort((a,b)=>b.created-a.created);box.innerHTML=rows.length?rows.map(r=>`<div class="exp-librow"><span>${escT(r.name)}<br><small>${escT(r.kind)}</small></span><span><button data-open="${r.id}">OPEN</button><button data-del="${r.id}">×</button></span></div>`).join(''):'<div class="sub">No imported files yet.</div>';box.querySelectorAll('[data-open]').forEach(b=>b.onclick=()=>expOpenRecord(EXP.imported.get(b.dataset.open)));box.querySelectorAll('[data-del]').forEach(b=>b.onclick=()=>expDelete(b.dataset.del))}
+
+  // ---------- UI ----------
+  const launch=document.createElement('button');launch.id='exp-launch';launch.textContent='EXP';document.body.appendChild(launch);
+  const menu=document.createElement('div');menu.id='exp-menu';menu.innerHTML=`
+    <h2>EXPERIENCE EDITION</h2><div class="sub">ORIGINAL BAREHANDS GESTURES · FUNCTIONALITY + VISUAL FX</div>
+    <div class="exp-section"><div class="exp-label">SCENES</div><div class="exp-row"><button class="exp-btn hot" data-a="showcase">SHOWCASE</button><button class="exp-btn" data-a="docwall">DOCUMENT WALL</button></div><div class="exp-row"><button class="exp-btn" data-a="netviz">NETWORK VIZ</button><button class="exp-btn" data-a="clear">CLEAR BOARD</button></div></div>
+    <div class="exp-section"><div class="exp-label">3D OBJECTS</div><div class="exp-row"><button class="exp-btn" data-a="core">HOLO ROBOT</button><button class="exp-btn" data-a="atom">HOLO MOTION</button></div><div class="exp-row"><button class="exp-btn" data-a="network">CARBON BIKE</button><button class="exp-btn" data-a="reactor">PBR HELMET</button></div></div>
+    <div class="exp-section"><div class="exp-label">FILES → SPATIAL NOTES</div><button class="exp-btn hot" data-a="import">IMPORT PDF / WORD / EXCEL / PPT / TEXT</button><input id="exp-file" type="file" hidden multiple accept=".pdf,.docx,.xlsx,.xls,.csv,.pptx,.txt,.md,.json,.xml,.log,image/*,video/*"><div id="exp-library"></div></div>
+    <div class="exp-section"><div class="exp-label">VISUAL FX</div>
+      <label class="exp-switch">AMBIENT PARTICLES <input type="checkbox" data-toggle="ambient" checked></label>
+      <label class="exp-switch">HOLOGRID <input type="checkbox" data-toggle="grid" checked></label>
+      <label class="exp-switch">OBJECT TRAILS <input type="checkbox" data-toggle="trails" checked></label>
+      <label class="exp-switch">PORTAL ARRIVALS <input type="checkbox" data-toggle="portals" checked></label>
+      <label class="exp-switch">CINEMATIC GLASS <input type="checkbox" data-toggle="cinema" checked></label>
+    </div>`;
+  document.body.appendChild(menu);
+  launch.onclick=e=>{e.stopPropagation();menu.classList.toggle('open')};
+  menu.onclick=e=>e.stopPropagation();
+  document.addEventListener('pointerdown',e=>{if(!menu.contains(e.target)&&e.target!==launch)menu.classList.remove('open')});
+
+  async function expAction(a){
+    if(a==='core')await expSpawnModel('holo-robot','Holo Robot',.56,.43,.90,'holo');
+    if(a==='atom')await expSpawnModel('holo-horse','Holo Motion',.56,.45,.90,'holo');
+    if(a==='network')await expSpawnModel('carbon-bike','Carbon Bike',.57,.48,.88,'solid');
+    if(a==='reactor')await expSpawnModel('damaged-helmet','Damaged Helmet',.58,.46,.86,'solid');
+    if(a==='netviz')expMakeHtmlPanel('Network Topology',expNetworkViz(),'LIVE VIZ',.56,.48,.78);
+    if(a==='docwall'){
+      const a1=expMakePanel('PROJECT BRIEF','# SPATIAL DOCUMENT\n\nPDF, Word, Excel, PowerPoint and text files can be converted into native glass notes.\n\n**Pinch-drag** the grip bar exactly as in original Barehands.\n\nScroll, stretch, throw and close with the original interaction engine.','DOC',.30,.43,.56);
+      const a2=expMakePanel('VISUALIZATION','# LIVE VISUALIZATION\n\nDocuments do not have to remain flat files.\n\nThey can sit beside **3D models**, network maps, images and live information.','VIZ',.57,.37,.56);
+      const a3=expMakePanel('EXPERIENCE','# EXPERIENCE LAYER\n\nObjects arrive through light portals.\n\nMoved objects leave subtle energy trails.\n\nThe hologrid and ambient field can be toggled from EXP.','FX',.75,.55,.56);
+      expBurst(innerWidth*.5,innerHeight*.45);
+    }
+    if(a==='showcase'){
+      await expSpawnModel('holo-robot','Holo Robot',.48,.38,.66,'holo');
+      await expSpawnModel('carbon-bike','Carbon Bike',.72,.51,.58,'solid');
+      expMakeHtmlPanel('AELIA EXPERIENCE',expNetworkViz(),'VISUALIZATION',.30,.56,.46);
+      expNotice('EXPERIENCE SCENE MATERIALIZED');
+    }
+    if(a==='clear')spawnStage(.30,.45);
+    if(a==='import')document.querySelector('#exp-file').click();
+  }
+  menu.querySelectorAll('[data-a]').forEach(b=>b.onclick=()=>expAction(b.dataset.a));
+  menu.querySelectorAll('[data-toggle]').forEach(c=>c.onchange=()=>{const k=c.dataset.toggle;EXP[k]=c.checked;if(k==='grid')gridEl.style.display=c.checked?'block':'none';if(k==='cinema')document.body.classList.toggle('exp-cinema',c.checked);if(k==='ambient'){vignetteEl.style.display=c.checked?'block':'none';scanEl.style.display=c.checked?'block':'none'}});
+  const fi=menu.querySelector('#exp-file');fi.onchange=async()=>{const fs=[...fi.files];menu.classList.remove('open');for(const f of fs){try{await expImport(f)}catch(e){console.error(e);expNotice('IMPORT FAILED · '+f.name)}}fi.value=''};
+
+  expAll().then(expRenderLibrary).catch(()=>{});
+  setTimeout(()=>expNotice('EXPERIENCE EDITION READY · ORI
