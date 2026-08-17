@@ -1,0 +1,95 @@
+le);
+
+  const space = document.createElement('div');
+  space.id = 'exp-space';
+  space.innerHTML = '<canvas id="exp-canvas"></canvas><div id="exp-grid"></div><div id="exp-vignette"></div><div id="exp-scan"></div>';
+  document.body.insertBefore(space, BEHIND || document.body.firstChild);
+  const bgCanvas = space.querySelector('#exp-canvas');
+  const bg = bgCanvas.getContext('2d');
+  const gridEl = space.querySelector('#exp-grid');
+  const vignetteEl = space.querySelector('#exp-vignette');
+  const scanEl = space.querySelector('#exp-scan');
+  document.body.classList.add('exp-cinema');
+
+  function expResize(){
+    const dpr = Math.min(2, devicePixelRatio || 1);
+    bgCanvas.width = Math.round(innerWidth*dpr); bgCanvas.height = Math.round(innerHeight*dpr);
+    bgCanvas.style.width=innerWidth+'px'; bgCanvas.style.height=innerHeight+'px';
+    bg.setTransform(dpr,0,0,dpr,0,0);
+  }
+  expResize(); addEventListener('resize', expResize);
+
+  const stars = Array.from({length:88},()=>({x:Math.random(),y:Math.random(),z:.2+Math.random()*.8,s:.4+Math.random()*1.3,p:Math.random()*6.3}));
+  function expParticle(x,y,vx,vy,life=700,size=2.2){ EXP.particles.push({x,y,vx,vy,b:performance.now(),life,size}); if(EXP.particles.length>180) EXP.particles.splice(0,EXP.particles.length-180); }
+  function expDraw(now){
+    bg.clearRect(0,0,innerWidth,innerHeight);
+    if(EXP.ambient){
+      for(const s of stars){
+        const a=.12+.28*s.z*(.55+.45*Math.sin(now*.00045+s.p));
+        bg.fillStyle=`rgba(126,240,234,${a})`; bg.beginPath(); bg.arc(s.x*innerWidth,s.y*innerHeight,s.s*s.z,0,7); bg.fill();
+        s.y-=.000018*(.3+s.z); if(s.y<-.02){s.y=1.02;s.x=Math.random()}
+      }
+      const g=bg.createRadialGradient(innerWidth*.52,innerHeight*.46,10,innerWidth*.52,innerHeight*.46,innerWidth*.44);
+      g.addColorStop(0,'rgba(77,229,219,.045)');g.addColorStop(1,'rgba(0,0,0,0)');bg.fillStyle=g;bg.fillRect(0,0,innerWidth,innerHeight);
+    }
+    for(let i=EXP.particles.length-1;i>=0;i--){
+      const p=EXP.particles[i],t=(now-p.b)/p.life;if(t>=1){EXP.particles.splice(i,1);continue}
+      p.x+=p.vx;p.y+=p.vy;bg.fillStyle=`rgba(131,248,240,${(1-t)*.48})`;bg.beginPath();bg.arc(p.x,p.y,p.size*(1-t*.6),0,7);bg.fill();
+    }
+    if(EXP.trails && typeof items!=='undefined'){
+      for(const it of items){ if(it?.grabbedBy?.length && Math.random()<.55){
+        for(let k=0;k<2;k++) expParticle(it.x+(Math.random()-.5)*35,it.y+(Math.random()-.5)*35,(Math.random()-.5)*.5,(Math.random()-.5)*.5,520,1.2+Math.random()*2.2);
+      }}
+    }
+    requestAnimationFrame(expDraw);
+  }
+  requestAnimationFrame(expDraw);
+
+  function expBurst(x,y){
+    if(!EXP.portals) return;
+    const p=document.createElement('div');p.className='exp-portal';p.style.left=x+'px';p.style.top=y+'px';document.body.appendChild(p);setTimeout(()=>p.remove(),850);
+    for(let i=0;i<24;i++){const a=i/24*Math.PI*2,sp=.8+Math.random()*2;expParticle(x,y,Math.cos(a)*sp,Math.sin(a)*sp,650,1.4+Math.random()*2)}
+  }
+  function expNotice(s){const n=document.createElement('div');n.className='exp-toast';n.textContent=s;document.body.appendChild(n);setTimeout(()=>n.remove(),2000)}
+
+  const obs = new MutationObserver(ms=>{
+    if(!EXP.portals) return;
+    for(const m of ms) for(const n of m.addedNodes){
+      if(!(n instanceof HTMLElement) || (!n.classList.contains('card') && !n.classList.contains('panel'))) continue;
+      if(n.closest('#exp-menu')) continue;
+      n.classList.add('exp-arrive');
+      requestAnimationFrame(()=>{const r=n.getBoundingClientRect();expBurst(r.left+r.width/2,r.top+r.height/2)});
+    }
+  });
+  obs.observe(BEHIND,{childList:true});
+
+  const EXP_MODELS={
+    'holo-robot':{url:'https://raw.githubusercontent.com/mrdoob/three.js/master/examples/models/gltf/RobotExpressive/RobotExpressive.glb',mode:'holo'},
+    'holo-horse':{url:'https://raw.githubusercontent.com/mrdoob/three.js/master/examples/models/gltf/Horse.glb',mode:'holo'},
+    'carbon-bike':{url:'https://raw.githubusercontent.com/mrdoob/three.js/master/examples/models/gltf/CarbonFrameBike.glb',mode:'solid'},
+    'damaged-helmet':{url:'https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Assets/main/Models/DamagedHelmet/glTF-Binary/DamagedHelmet.glb',mode:'solid'}
+  };
+  async function expSpawnModel(name,title,x=.55,y=.5,scale=1,mode){
+    const d=EXP_MODELS[name]; if(!d) throw new Error('Unknown model '+name);
+    expNotice('MATERIALIZING 3D · '+title.toUpperCase());
+    const it=makeModel(d.url,title,mode||d.mode);
+    it.x=innerWidth*x;it.y=innerHeight*y;it.scale=scale;it.anim={k:'in',t:0};it.el.style.opacity='0.05';items.push(it);expBurst(it.x,it.y);return it;
+  }
+
+  function expMakePanel(title,text,kind='NOTE',x=.52,y=.47,scale=1){
+    const def={file:`experience://${Date.now()}-${Math.random().toString(36).slice(2)}`,title};
+    const el=document.createElement('div');el.className='panel exp-doc';el.dataset.expKind=kind;
+    el.querySelector?.('.bar');
+    el.innerHTML=`<div class="bar" data-exp-kind="${escT(kind)}"><h3>${escT(title)}</h3></div><div class="body"><div class="scroll">${renderNote(text)}</div></div>`;
+    el.querySelector('.bar').setAttribute('data-exp-kind',kind);
+    BEHIND.appendChild(el);
+    const p={el,id:UID++,type:'panel',def,x:innerWidth*x,y:innerHeight*y,scale,vx:0,vy:0,grabbedBy:[],ox:0,oy:0,flying:false,stretch:null,scrollY:0,body:el.querySelector('.scroll')};
+    items.push(p);return p;
+  }
+
+  function expMakeHtmlPanel(title,html,kind='VIZ',x=.52,y=.47,scale=1){
+    const def={file:`experience://${Date.now()}-${Math.random().toString(36).slice(2)}`,title};
+    const el=document.createElement('div');el.className='panel exp-doc exp-html';
+    el.innerHTML=`<div class="bar" data-exp-kind="${escT(kind)}"><h3>${escT(title)}</h3></div><div class="body"><div class="scroll">${html}</div></div>`;
+    el.querySelector('.bar').setAttribute('data-exp-kind',kind);BEHIND.appendChild(el);
+    const p={el,id:UID++,type:'panel',def,x:innerWidth*x,y:innerHeight*y,scale,vx:0,vy:0,grabbedB
