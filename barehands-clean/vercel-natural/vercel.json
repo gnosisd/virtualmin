@@ -1,0 +1,13 @@
+{
+  "rewrites": [
+    {"source":"/stage.html","destination":"/api/stage"},
+    {"source":"/config","destination":"/api/runtime?route=config"},
+    {"source":"/tree","destination":"/api/runtime?route=tree"},
+    {"source":"/note","destination":"/api/runtime?route=note"},
+    {"source":"/props","destination":"/api/runtime?route=props"},
+    {"source":"/orb","destination":"/api/runtime?route=orb"},
+    {"source":"/state","destination":"/api/runtime?route=state"},
+    {"source":"/cmd","destination":"/api/runtime?route=cmd"},
+    {"source":"/media/:path*","destination":"/api/media?path=:path*"}
+  ]
+}
