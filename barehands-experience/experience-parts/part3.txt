@@ -1,0 +1,42 @@
+y:[],ox:0,oy:0,flying:false,stretch:null,scrollY:0,body:el.querySelector('.scroll')};items.push(p);return p;
+  }
+
+  function expNetworkViz(){
+    return `<svg viewBox="0 0 760 520" xmlns="http://www.w3.org/2000/svg">
+      <defs><filter id="g"><feGaussianBlur stdDeviation="4" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+      <linearGradient id="bg" x1="0" x2="1"><stop stop-color="#071d21"/><stop offset="1" stop-color="#031014"/></linearGradient></defs>
+      <rect width="760" height="520" rx="22" fill="url(#bg)"/>
+      <g stroke="#5fe7df" stroke-width="3" opacity=".7" filter="url(#g)"><path d="M105 255 L240 160 L390 255 L540 150 L660 250"/><path d="M390 255 L535 365 L660 250"/><path d="M240 160 L535 365" opacity=".25"/></g>
+      ${[['ISP',105,255,'#ffd263'],['FIREWALL',240,160,'#ff7d77'],['CORE',390,255,'#6ff0e5'],['DIST',540,150,'#7ca8ff'],['AP',535,365,'#76ffb3'],['ROOM',660,250,'#d891ff']].map(([t,x,y,c])=>`<g transform="translate(${x},${y})"><circle r="46" fill="${c}20" stroke="${c}" stroke-width="2"/><circle r="7" fill="${c}" filter="url(#g)"/><text y="68" fill="#dffffa" font-size="15" text-anchor="middle" font-family="monospace">${t}</text></g>`).join('')}
+      <text x="28" y="42" fill="#8ff0e4" font-size="18" font-family="monospace">LIVE TOPOLOGY VISUALIZATION</text>
+      <text x="28" y="70" fill="#739c9a" font-size="11" font-family="monospace">visual layer demo · spatial panel remains movable with original gestures</text>
+    </svg>`;
+  }
+
+  // ---------- local library ----------
+  function expDB(){
+    if(EXP.db) return EXP.db;
+    EXP.db=new Promise((resolve,reject)=>{const r=indexedDB.open('barehands-experience-v1',1);r.onupgradeneeded=()=>{const db=r.result;if(!db.objectStoreNames.contains('files'))db.createObjectStore('files',{keyPath:'id'})};r.onsuccess=()=>resolve(r.result);r.onerror=()=>reject(r.error)});return EXP.db;
+  }
+  async function expStore(rec){const db=await expDB();await new Promise((res,rej)=>{const t=db.transaction('files','readwrite');t.objectStore('files').put(rec);t.oncomplete=res;t.onerror=()=>rej(t.error)});EXP.imported.set(rec.id,rec);expRenderLibrary()}
+  async function expAll(){const db=await expDB();const a=await new Promise((res,rej)=>{const q=db.transaction('files').objectStore('files').getAll();q.onsuccess=()=>res(q.result||[]);q.onerror=()=>rej(q.error)});EXP.imported=new Map(a.map(x=>[x.id,x]));return a}
+  async function expDelete(id){const db=await expDB();await new Promise((res,rej)=>{const t=db.transaction('files','readwrite');t.objectStore('files').delete(id);t.oncomplete=res;t.onerror=()=>rej(t.error)});EXP.imported.delete(id);expRenderLibrary()}
+
+  function expLoadScript(src,globalName){return new Promise((resolve,reject)=>{if(globalName&&window[globalName])return resolve(window[globalName]);const s=document.createElement('script');s.src=src;s.onload=()=>resolve(globalName?window[globalName]:true);s.onerror=()=>reject(new Error('Could not load '+src));document.head.appendChild(s)})}
+  async function expPdf(file){const pdfjs=await import('https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/build/pdf.mjs');pdfjs.GlobalWorkerOptions.workerSrc='https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/build/pdf.worker.mjs';const pdf=await pdfjs.getDocument({data:new Uint8Array(await file.arrayBuffer())}).promise;let out=`# ${file.name}\n\nPDF · ${pdf.numPages} pages\n\n`;for(let i=1;i<=pdf.numPages;i++){const page=await pdf.getPage(i),tc=await page.getTextContent();out+=`\n## PAGE ${i}\n\n`+tc.items.map(x=>x.str).join(' ')+'\n';if(out.length>120000){out+='\n[truncated for spatial reading]\n';break}}return out}
+  async function expDocx(file){const mammoth=await expLoadScript('https://cdn.jsdelivr.net/npm/mammoth@1.9.1/mammoth.browser.min.js','mammoth');const r=await mammoth.extractRawText({arrayBuffer:await file.arrayBuffer()});return `# ${file.name}\n\nWORD DOCUMENT\n\n${r.value}`}
+  async function expSheet(file){await expLoadScript('https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js','XLSX');const wb=XLSX.read(await file.arrayBuffer(),{type:'array'});let out=`# ${file.name}\n\nSPREADSHEET · ${wb.SheetNames.length} sheets\n`;for(const n of wb.SheetNames){out+=`\n## ${n}\n\n`+XLSX.utils.sheet_to_csv(wb.Sheets[n])+'\n';if(out.length>120000){out+='\n[truncated]\n';break}}return out}
+  async function expPptx(file){await expLoadScript('https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js','JSZip');const zip=await JSZip.loadAsync(await file.arrayBuffer()),slides=Object.keys(zip.files).filter(n=>/^ppt\/slides\/slide\d+\.xml$/.test(n)).sort((a,b)=>(+a.match(/\d+/)[0])-(+b.match(/\d+/)[0]));let out=`# ${file.name}\n\nPOWERPOINT · ${slides.length} slides\n`;for(let i=0;i<slides.length;i++){const xml=await zip.file(slides[i]).async('text'),doc=new DOMParser().parseFromString(xml,'application/xml'),texts=[...doc.getElementsByTagNameNS('*','t')].map(n=>n.textContent).filter(Boolean);out+=`\n## SLIDE ${i+1}\n\n${texts.join('\n')}\n`}return out}
+  async function expConvert(file){
+    const ext=(file.name.split('.').pop()||'').toLowerCase();
+    if(['txt','md','log','json','xml','html','htm'].includes(ext))return {kind:ext.toUpperCase(),text:`# ${file.name}\n\n${await file.text()}`};
+    if(ext==='pdf')return {kind:'PDF',text:await expPdf(file)};
+    if(ext==='docx')return {kind:'WORD',text:await expDocx(file)};
+    if(['xlsx','xls','csv'].includes(ext))return {kind:'EXCEL',text:await expSheet(file)};
+    if(ext==='pptx')return {kind:'POWERPOINT',text:await expPptx(file)};
+    if(file.type.startsWith('image/')||file.type.startsWith('video/'))return {kind:'MEDIA',blob:file};
+    return {kind:'FILE',text:`# ${file.name}\n\nUnsupported rich conversion for this type.\n\nMIME: ${file.type||'unknown'}\nSize: ${Math.round(file.size/1024)} KB`};
+  }
+  async function expImport(file){
+    expNotice('MATERIALIZING '+file.name.toUpperCase());
+    const c=await expConvert(file),id=crypto.randomUUID?crypto.randomU
