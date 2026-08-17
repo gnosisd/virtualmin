@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>AELIA Gaze Lab</title>
+<style>
+html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#020708;color:#eafffb;font-family:system-ui,-apple-system,Segoe UI,sans-serif}
+#cam{position:fixed;inset:0;width:100%;height:100%;object-fit:cover;transform:scaleX(-1);opacity:.16;filter:saturate(.65) brightness(.65)}
+#veil{position:fixed;inset:0;background:radial-gradient(circle at center,rgba(0,15,18,.05),rgba(0,0,0,.48));pointer-events:none}
+#hud{position:fixed;inset:0;pointer-events:none}
+#top{position:absolute;top:14px;left:50%;transform:translateX(-50%);min-width:min(860px,92vw);padding:10px 14px;border:1px solid rgba(143,240,228,.28);border-radius:14px;background:rgba(0,9,11,.78);backdrop-filter:blur(10px);text-align:center;font:12px ui-monospace,SFMono-Regular,Menlo,monospace;letter-spacing:.055em;color:#cafff7}
+#sub{margin-top:5px;font-size:10px;opacity:.7;letter-spacing:.04em}
+#progress{position:absolute;top:74px;left:50%;transform:translateX(-50%);width:min(520px,70vw);height:5px;border-radius:5px;background:rgba(255,255,255,.10);overflow:hidden}
+#progress>i{display:block;height:100%;width:0;background:#8ff0e4;transition:width .14s linear}
+#confidence{position:absolute;right:18px;top:18px;padding:8px 10px;border:1px solid rgba(143,240,228,.22);border-radius:10px;background:rgba(0,9,11,.68);font:10px ui-monospace,monospace;line-height:1.5;color:#bffbf3;min-width:170px}
+#rawDot{display:none;position:absolute;width:12px;height:12px;margin:-6px;border-radius:50%;background:#fff;box-shadow:0 0 7px #fff,0 0 18px #8ff0e4;z-index:50}
+#rawDot:after{content:"RAW";position:absolute;left:14px;top:-4px;color:white;font:9px ui-monospace,monospace;text-shadow:0 1px 5px #000}
+#target{display:none;position:absolute;width:44px;height:44px;margin:-22px;border:3px solid rgba(143,240,228,.98);border-radius:50%;box-shadow:0 0 36px rgba(143,240,228,.92);z-index:20}
+#target:before,#target:after{content:"";position:absolute;background:rgba(220,255,251,.8)}
+#target:before{left:20px;top:-14px;width:1px;height:66px}#target:after{left:-14px;top:20px;width:66px;height:1px}
+#target.hit{box-shadow:0 0 18px #fff,0 0 54px rgba(143,240,228,1)}
+#bottom{position:absolute;bottom:20px;left:50%;transform:translateX(-50%);min-width:min(900px,92vw);padding:12px 16px;border-radius:14px;background:rgba(0,9,11,.82);border:1px solid rgba(143,240,228,.24);text-align:center;font:12px ui-monospace,SFMono-Regular,Menlo,monospace;line-height:1.6;color:#d8fff9}
+#score{display:none;position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:min(650px,82vw);padding:28px;border-radius:22px;background:rgba(0,10,12,.93);border:1px solid rgba(143,240,228,.40);box-shadow:0 24px 100px rgba(0,0,0,.72);text-align:center;font:14px ui-monospace,SFMono-Regular,Menlo,monospace;line-height:1.8;z-index:80}
+#score b{font-size:20px;letter-spacing:.08em;color:#dffff9}
+#grid{display:none;position:absolute;inset:0}
+.mark{position:absolute;width:18px;height:18px;margin:-9px;border-radius:50%;border:1px solid rgba(143,240,228,.30)}
+.mark:before,.mark:after{content:"";position:absolute;background:rgba(143,240,228,.30)}.mark:before{left:8px;top:-7px;width:1px;height:30px}.mark:after{left:-7px;top:8px;width:30px;height:1px}
+#start{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;z-index:100;background:rgba(0,0,0,.44);pointer-events:auto}
+#start button{font:700 16px system-ui;padding:18px 26px;border-radius:16px;border:1px solid rgba(143,240,228,.7);background:rgba(13,42,45,.88);color:#eafffb;cursor:pointer;box-shadow:0 12px 50px rgba(0,0,0,.55)}
+.small{opacity:.7;font-size:10px}
+</style>
+</head>
+<body>
+<video id="cam" autoplay muted playsinline></video><div id="veil"></div>
+<div id="hud">
+  <div id="top">AELIA GAZE LAB · RAW GAZE + HEAD TRAINER<div id="sub">G = train/retrain · ESC = free test · R = erase profile</div></div>
+  <div id="progress"><i></i></div>
+  <div id="confidence">camera: waiting<br>model: waiting<br>confidence: —</div>
+  <div id="rawDot"></div><div id="target"></div><div id="grid"></div>
+  <div id="bottom">Start the camera, then press <b>G</b>. During training, look at the cyan target — do not chase the white RAW dot.</div>
+  <div id="score"></div>
+  <div id="start"><button>START CAMERA</button></div>
+</div>
+<script type="module">
+import {FaceLandmarker,FilesetResolver} from 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.22-rc.20250304/+esm';
+const $=s=>document.querySelector(s),cam=$('#cam'),raw=$('#rawDot'),target=$('#target'),bottom=$('#bottom'),conf=$('#confidence'),bar=$('#progress i'),score=$('#score'),grid=$('#grid'),start=$('#start');
+const clamp=(v,a=0,b=1)=>Math.max(a,Math.min(b,v)),mean=a=>a.length?a.reduce((s,v)=>s+v,0)/a.length:0,med=a=>{if(!a.length)return 0;const s=[...a].sort((x,y)=>x-y),m=s.length>>1;return s.length%2?s[m]:(s[m-1]+s[m])/2;};
+const KEY='aelia-gaze-lab-v1-profile';
+const STATIC=[[.06,.08],[.28,.08],[.50,.08],[.72,.08],[.94,.08],[.06,.34],[.28,.34],[.50,.34],[.72,.34],[.94,.34],[.06,.66],[.28,.66],[.50,.66],[.72,.66],[.94,.66],[.06,.92],[.28,.92],[.50,.92],[.72,.92],[.94,.92]];
+const HEAD=[[.10,.14],[.50,.14],[.90,.14],[.10,.50],[.50,.50],[.90,.50],[.10,.86],[.50,.86],[.90,.86]];
+const DEPTH=[[.14,.18],[.86,.18],[.50,.50],[.14,.82],[.86,.82]];
+const TEST=[[.18,.12],[.50,.18],[.82,.12],[.10,.42],[.38,.38],[.66,.42],[.90,.38],[.18,.70],[.50,.78],[.82,.70],[.32,.92],[.68,.92]];
+let face=null,models=null,rows=[],phase='idle',step=0,stepT=0,lastSample=0,lastVideo=-1,lastFrame=0,rawX=.5,rawY=.5,headSpeed=0,headPrev=null,testErr=[],testRows=[],pointErr=[],pointRows=[],running=false,freeTest=false;
+function phasePts(){return phase==='static'?STATIC:phase==='head'?HEAD:phase==='depth'?DEPTH:phase==='test'?TEST:[]}
+function phaseDur(){return phase==='static'?950:phase==='head'?1800:phase==='depth'?2000:phase==='test'?1300:1000}
+function phaseText(){if(phase==='static')return'PHASE 1 / 4 · EYES · keep your head comfortable';if(phase==='head')return'PHASE 2 / 4 · keep looking at the target · gently move your head left/right and slightly up/down';if(phase==='depth')return'PHASE 3 / 4 · keep looking at the target · gently lean 3–5 cm closer/farther';if(phase==='test')return'PHASE 4 / 4 · accuracy test · look naturally · ignore the white RAW dot';return'FREE TEST';}
+function blend(res,name){const a=res?.faceBlendshapes?.[0]?.categories||[],c=a.find(v=>v.categoryName===name||v.displayName===name);return c?.score||0}
+function proj(p,o,ux,uy){return(p.x-o.x)*ux+(p.y-o.y)*uy}
+function eyeNorm(lm,iris,c1,c2,topi,boti){const a=lm[c1],b=lm[c2],p=lm[iris],t=lm[topi],bt=lm[boti];if(!a||!b||!p||!t||!bt)return[.5,.5,0];const dx=b.x-a.x,dy=b.y-a.y,L=Math.hypot(dx,dy)||1,ux=dx/L,uy=dy/L,vx=-uy,vy=ux,h=proj(p,a,ux,uy)/L,ty=proj(t,a,vx,vy),by=proj(bt,a,vx,vy),py=proj(p,a,vx,vy),den=(by-ty)||.001;return[h,(py-ty)/den,Math.abs(den)/L]}
+function feat(res){const lm=res?.faceLandmarks?.[0];if(!lm||lm.length<468||!res?.faceBlendshapes?.[0])return null;const le=lm[33],re=lm[263],nose=lm[1],fore=lm[10],chin=lm[152];if(!le||!re||!nose||!fore||!chin)return null;const fw=Math.hypot(re.x-le.x,re.y-le.y)||.1,mx=(le.x+re.x)/2,my=(le.y+re.y)/2,R=eyeNorm(lm,lm[468]?468:33,33,133,159,145),L=eyeNorm(lm,lm[473]?473:263,263,362,386,374);const bsLX=blend(res,'eyeLookOutLeft')-blend(res,'eyeLookInLeft'),bsLY=blend(res,'eyeLookDownLeft')-blend(res,'eyeLookUpLeft'),bsRX=blend(res,'eyeLookInRight')-blend(res,'eyeLookOutRight'),bsRY=blend(res,'eyeLookDownRight')-blend(res,'eyeLookUpRight');const hx=(nose.x-mx)/fw,hy=(nose.y-my)/fw,fcx=mx-.5,fcy=my-.5,fh=Math.hypot(chin.x-fore.x,chin.y-fore.y),roll=Math.atan2(re.y-le.y,re.x-le.x),yaw=(Math.hypot(nose.x-le.x,nose.y-le.y)-Math.hypot(nose.x-re.x,nose.y-re.y))/fw,blinkL=blend(res,'eyeBlinkLeft'),blinkR=blend(res,'eyeBlinkRight');return{f:[L[0],L[1],R[0],R[1],bsLX,bsLY,bsRX,bsRY,hx,hy,fcx,fcy,fw,fh,roll,yaw],eyeOpen:clamp((L[2]+R[2])/.34,0,1.2),head:[hx,hy,fcx,fcy,fw,fh,roll,yaw],blinkL,blinkR}}
+function bF(f){const[lh,lv,rh,rv,lx,ly,rx,ry,hx,hy,cx,cy,fw,fh,roll,yaw]=f;return[...f,lh*hx,rh*hx,lv*hy,rv*hy,lh*cx,rh*cx,lv*cy,rv*cy,hx*hx,hy*hy,cx*cx,cy*cy,lh*rh,lv*rv,1]}
+function bL(f){const[lh,lv,,,lx,ly,,,hx,hy,cx,cy,fw,fh,roll,yaw]=f;return[lh,lv,lx,ly,hx,hy,cx,cy,fw,fh,roll,yaw,lh*hx,lv*hy,lh*cx,lv*cy,hx*hx,hy*hy,1]}
+function bR(f){const[,,rh,rv,,,rx,ry,hx,hy,cx,cy,fw,fh,roll,yaw]=f;return[rh,rv,rx,ry,hx,hy,cx,cy,fw,fh,roll,yaw,rh*hx,rv*hy,rh*cx,rv*cy,hx*hx,hy*hy,1]}
+function bH(f){const[,,,,,,,,hx,hy,cx,cy,fw,fh,roll,yaw]=f;return[hx,hy,cx,cy,fw,fh,roll,yaw,hx*fw,hy*fw,cx*fw,cy*fh,hx*hx,hy*hy,cx*cx,cy*cy,1]}
+function solve(A,b){const n=A.length,M=A.map((r,i)=>r.slice().concat(b[i]));for(let c=0;c<n;c++){let p=c;for(let r=c+1;r<n;r++)if(Math.abs(M[r][c])>Math.abs(M[p][c]))p=r;if(Math.abs(M[p][c])<1e-10)return null;[M[c],M[p]]=[M[p],M[c]];const z=M[c][c];for(let j=c;j<=n;j++)M[c][j]/=z;for(let r=0;r<n;r++)if(r!==c){const q=M[r][c];for(let j=c;j<=n;j++)M[r][j]-=q*M[c][j]}}return M.map(r=>r[n])}
+function fit(rs,axis,basis,ridge=.004){if(rs.length<5)return null;const n=basis(rs[0].f).length,A=Array.from({length:n},()=>Array(n).fill(0)),b=Array(n).fill(0);for(const row of rs){const x=basis(row.f),w=row.w??1,y=row.p[axis];for(let i=0;i<n;i++){b[i]+=w*x[i]*y;for(let j=0;j<n;j++)A[i][j]+=w*x[i]*x[j]}}for(let i=0;i<n;i++)A[i][i]+=ridge;return solve(A,b)}
+function stats(rs){const n=16,mu=Array(n).fill(0),sd=Array(n).fill(0),sw=rs.reduce((s,r)=>s+(r.w??1),0)||1;for(const r of rs){const w=r.w??1;for(let i=0;i<n;i++)mu[i]+=w*r.f[i]/sw}for(const r of rs){const w=r.w??1;for(let i=0;i<n;i++)sd[i]+=w*(r.f[i]-mu[i])**2/sw}for(let i=0;i<n;i++)sd[i]=Math.max(Math.sqrt(sd[i]),.012);return{mu,sd}}
+function fitModels(rs){if(rs.length<20)return null;const m={rows:rs,stats:stats(rs)};for(const[n,b]of[['F',bF],['L',bL],['R',bR],['H',bH]]){m['x'+n]=fit(rs,0,b);m['y'+n]=fit(rs,1,b)}return m}
+function coef(c,b){return c?c.reduce((s,v,i)=>s+v*b[i],0):.5}
+function pair(m,f,k){const b=k==='F'?bF:k==='L'?bL:k==='R'?bR:bH;return[clamp(coef(m['x'+k],b(f))),clamp(coef(m['y'+k],b(f)))]}
+function local(m,f){const st=m.stats,near=m.rows.map(r=>{let d=0;for(let i=0;i<16;i++){const z=(f[i]-st.mu[i])/(st.sd[i]||.02);d+=z*z}return{d:Math.sqrt(d),p:r.p,w:r.w??1}}).sort((a,b)=>a.d-b.d).slice(0,10);let sw=0,sx=0,sy=0;for(const q of near){const w=q.w/(.05+q.d*q.d);sw+=w;sx+=w*q.p[0];sy+=w*q.p[1]}return{p:sw?[sx/sw,sy/sw]:[.5,.5],d:near.length?mean(near.slice(0,5).map(q=>q.d)):9}}
+function predict(meta){if(!models)return null;const f=meta.f,pf=pair(models,f,'F'),pl=pair(models,f,'L'),pr=pair(models,f,'R'),ph=pair(models,f,'H'),lo=local(models,f),lr=Math.hypot(pl[0]-pr[0],pl[1]-pr[1]),sp=mean([Math.hypot(pf[0]-pl[0],pf[1]-pl[1]),Math.hypot(pf[0]-pr[0],pf[1]-pr[1]),Math.hypot(pf[0]-lo.p[0],pf[1]-lo.p[1])]);const agree=Math.exp(-Math.pow(lr/.095,2)),modelAgree=Math.exp(-Math.pow(sp/.105,2)),localConf=Math.exp(-Math.min(8,lo.d)*.30),open=clamp(meta.eyeOpen,0,1);let wf=.38,wl=.30,we=.27,wh=.05;if(headSpeed>.32){wf=.38;wl=.28;we=.18;wh=.16}const eye=[(pl[0]+pr[0])/2,(pl[1]+pr[1])/2],sum=wf+wl+we+wh,x=(pf[0]*wf+lo.p[0]*wl+eye[0]*we+ph[0]*wh)/sum,y=(pf[1]*wf+lo.p[1]*wl+eye[1]*we+ph[1]*wh)/sum,c=clamp(.30*agree+.28*modelAgree+.25*localConf+.17*open);return{x:clamp(x),y:clamp(y),c,lr,sp}}
+function save(){localStorage.setItem(KEY,JSON.stringify({rows,ts:Date.now()}))}
+function load(){try{const x=JSON.parse(localStorage.getItem(KEY)||'null');if(x?.rows?.length>=40){rows=x.rows;models=fitModels(rows)}}catch{}}
+function setPoint(){const pts=phasePts(),p=pts[step];if(!p)return;target.style.display='block';target.style.left=p[0]*100+'%';target.style.top=p[1]*100+'%';target.classList.remove('hit');bottom.textContent=phaseText()+' · '+(step+1)+' / '+pts.length+' · look at the target and let your eyes settle';stepT=performance.now();lastSample=0;pointErr=[];pointRows=[];bar.style.width=((step/pts.length)*100)+'%'}
+function refit(){models=fitModels(rows);save()}
+function nextPhase(){if(phase==='static'){refit();phase='head';step=0;setPoint();return}if(phase==='head'){refit();phase='depth';step=0;setPoint();return}if(phase==='depth'){refit();phase='test';step=0;testErr=[];testRows=[];setPoint();return}if(phase==='test')finish()}
+function startTrain(){if(!face)return;running=true;freeTest=false;phase='static';step=0;rows=rows.filter(r=>r.keep).slice(-80);models=fitModels(rows);testErr=[];testRows=[];score.style.display='none';grid.style.display='none';target.style.display='block';raw.style.display=models?'block':'none';setPoint()}
+function marks(){grid.innerHTML=HEAD.map(p=>`<i class="mark" style="left:${p[0]*100}%;top:${p[1]*100}%"></i>`).join('');grid.style.display='block'}
+function finish(){running=false;freeTest=true;phase='free';target.style.display='none';marks();const e=testErr.filter(Number.isFinite).sort((a,b)=>a-b),diag=Math.hypot(innerWidth,innerHeight),m=e.length?e[Math.floor(e.length*.5)]:NaN,p90=e.length?e[Math.min(e.length-1,Math.floor(e.length*.9))]:NaN,pct=Number.isFinite(m)?100*m/diag:NaN,grade=!Number.isFinite(pct)?'NO SCORE':pct<2.2?'EXCELLENT':pct<3.5?'VERY GOOD':pct<5?'GOOD':pct<7?'USABLE':'NEEDS MORE TRAINING';for(const r of testRows)rows.push({...r,w:.42,keep:1});if(rows.length>620)rows=rows.slice(-620);refit();score.style.display='block';score.innerHTML=`<b>${grade}</b><br><br>median raw-gaze error: ${Number.isFinite(m)?Math.round(m)+' px':'—'} (${Number.isFinite(pct)?pct.toFixed(1)+'% of screen diagonal':'—'})<br>90th percentile: ${Number.isFinite(p90)?Math.round(p90)+' px':'—'}<br><br>The white RAW dot is now in free-test mode.<br>Look at the faint grid marks and move your head naturally.<br><br><span class="small">G = train again · ESC = hide training overlays · R = erase profile</span>`;bottom.textContent='FREE TEST · ignore the dot while moving your eyes, then check where it lands after your gaze settles';bar.style.width='100%'}
+function updateTrainer(meta,p,now){if(!running)return;const pts=phasePts(),truth=pts[step],age=now-stepT,dur=phaseDur();if(p){raw.style.display='block';raw.style.left=p.x*innerWidth+'px';raw.style.top=p.y*innerHeight+'px';const err=Math.hypot((p.x-truth[0])*innerWidth,(p.y-truth[1])*innerHeight);target.classList.toggle('hit',err<42);conf.innerHTML=`camera: tracking<br>model: ${rows.length} samples<br>confidence: ${Math.round(p.c*100)}%<br>L/R disagreement: ${(p.lr*100).toFixed(1)}%<br>head motion: ${headSpeed.toFixed(2)}`}
+if(age>270&&age<dur-130&&now-lastSample>60){lastSample=now;const w=phase==='static'?.88:phase==='head'?.96:phase==='depth'?1:.5,row={f:meta.f.slice(),p:truth.slice(),w,keep:1};if(phase==='test'){if(p){pointErr.push(Math.hypot((p.x-truth[0])*innerWidth,(p.y-truth[1])*innerHeight));pointRows.push(row)}}else rows.push(row)}
+if(age>=dur){if(phase==='test'){if(pointErr.length)testErr.push(med(pointErr));testRows.push(...pointRows)}step++;bar.style.width=((step/pts.length)*100)+'%';if(step>=pts.length)nextPhase();else{if(phase!=='test'&&step%4===0)refit();setPoint()}}}
+async function camera(){const stream=await navigator.mediaDevices.getUserMedia({video:{width:{ideal:1280},height:{ideal:720},facingMode:'user'},audio:false});cam.srcObject=stream;await new Promise(r=>cam.onloadedmetadata=r);const vision=await FilesetResolver.forVisionTasks('https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.22-rc.20250304/wasm');face=await FaceLandmarker.createFromOptions(vision,{baseOptions:{modelAssetPath:'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task',delegate:'GPU'},runningMode:'VIDEO',numFaces:1,outputFaceBlendshapes:true,minFaceDetectionConfidence:.5,minFacePresenceConfidence:.5,minTrackingConfidence:.5});load();conf.innerHTML=`camera: ready<br>model: ${models?'loaded':'new'}<br>confidence: —`;start.style.display='none';bottom.textContent=models?'Profile loaded. Press G to train more, or look around to inspect the RAW dot.':'Press G to start gaze training.';raw.style.display=models?'block':'none';requestAnimationFrame(loop)}
+function loop(now){requestAnimationFrame(loop);if(!face||cam.readyState<2||now-lastFrame<38||cam.currentTime===lastVideo)return;const dt=lastFrame?Math.max(.01,(now-lastFrame)/1000):.04;lastFrame=now;lastVideo=cam.currentTime;let res;try{res=face.detectForVideo(cam,now)}catch{return}const m=feat(res);if(!m)return;const h=m.head;if(headPrev){const d=Math.hypot((h[0]-headPrev[0])*1.2,(h[1]-headPrev[1])*1.2,(h[2]-headPrev[2])*2,(h[3]-headPrev[3])*2,(h[4]-headPrev[4])*4);headSpeed=headSpeed*.75+(d/dt)*.25}headPrev=h.slice();const p=predict(m);if(p){rawX=p.x;rawY=p.y;if(!running){raw.style.display='block';raw.style.left=p.x*innerWidth+'px';raw.style.top=p.y*innerHeight+'px';conf.innerHTML=`camera: tracking<br>model: ${rows.length} samples<br>confidence: ${Math.round(p.c*100)}%<br>L/R disagreement: ${(p.lr*100).toFixed(1)}%<br>head motion: ${headSpeed.toFixed(2)}`}}updateTrainer(m,p,now)}
+start.querySelector('button').onclick=()=>camera().catch(e=>{bottom.textContent='Camera could not start: '+(e.message||e)});
+addEventListener('keydown',e=>{if(e.key==='g'||e.key==='G'){e.preventDefault();if(face)startTrain()}if(e.key==='Escape'){running=false;freeTest=true;phase='free';target.style.display='none';score.style.display='none';marks();bottom.textContent='FREE TEST · raw gaze only · G trains again';bar.style.width='0'}if(e.key==='r'||e.key==='R'){localStorage.removeItem(KEY);rows=[];models=null;raw.style.display='none';score.style.display='none';grid.style.display='none';bottom.textContent='Profile erased. Press G to train from scratch.'}},true);
+</script>
+</body>
+</html>
