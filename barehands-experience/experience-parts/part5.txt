@@ -1,0 +1,2 @@
+GINAL GESTURES ACTIVE'),1200);
+})();
