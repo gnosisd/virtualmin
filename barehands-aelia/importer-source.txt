@@ -1,0 +1,150 @@
+// ---- LOCAL DOCUMENT IMPORTER: only addition to upstream Barehands ----
+{
+  const impStyle = document.createElement('style');
+  impStyle.textContent = `
+    #bh-import-btn{position:fixed;right:18px;bottom:18px;z-index:9998;border:1px solid rgba(150,240,230,.38);background:rgba(5,18,20,.82);color:#dffffa;padding:10px 14px;border-radius:999px;font:700 11px/1 system-ui,sans-serif;letter-spacing:.08em;backdrop-filter:blur(12px);cursor:pointer;box-shadow:0 8px 34px rgba(0,0,0,.28)}
+    #bh-import-btn:hover{background:rgba(30,84,83,.82)}
+    .panel.bh-import-panel .body{overflow:hidden}
+    .panel.bh-import-panel .scroll{white-space:pre-wrap}
+    .panel.bh-import-panel .scroll img,.panel.bh-import-panel .scroll video{display:block;max-width:100%;max-height:68vh;margin:0 auto;border-radius:10px}
+    .panel.bh-import-panel .scroll video{width:100%}
+    .panel.bh-import-panel .sheet{margin:0 0 22px}
+    .panel.bh-import-panel .sheet h4{margin:0 0 8px;color:#bffcf5;font-size:13px;letter-spacing:.05em}
+    .panel.bh-import-panel table{border-collapse:collapse;width:100%;font-size:11px}
+    .panel.bh-import-panel td,.panel.bh-import-panel th{border-bottom:1px solid rgba(255,255,255,.09);padding:5px 7px;text-align:left;vertical-align:top}
+    .panel.bh-import-panel .page-sep{margin:18px 0 10px;color:#9eece3;font-size:11px;letter-spacing:.12em}
+  `;
+  document.head.appendChild(impStyle);
+
+  const impInput = document.createElement('input');
+  impInput.type = 'file';
+  impInput.multiple = true;
+  impInput.accept = '.pdf,.docx,.xlsx,.xls,.csv,.pptx,.txt,.md,.log,.json,.xml,.png,.jpg,.jpeg,.webp,.gif,.mp4,.webm,.mov,.m4v,.avi';
+  impInput.style.display = 'none';
+  document.body.appendChild(impInput);
+
+  const impBtn = document.createElement('button');
+  impBtn.id = 'bh-import-btn';
+  impBtn.type = 'button';
+  impBtn.textContent = '＋ IMPORT';
+  impBtn.title = 'Import PDF, Word, Excel, PowerPoint, text, photos or video';
+  document.body.appendChild(impBtn);
+  impBtn.addEventListener('click', e => { e.stopPropagation(); impInput.click(); });
+
+  const escHtml = s => String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  const extOf = name => (name.split('.').pop() || '').toLowerCase();
+
+  function loadScript(src, test) {
+    if (test && test()) return Promise.resolve();
+    return new Promise((resolve, reject) => {
+      const s = document.createElement('script');
+      s.src = src; s.onload = resolve; s.onerror = () => reject(new Error('Could not load '+src));
+      document.head.appendChild(s);
+    });
+  }
+
+  function addImportedPanel(title, html, opts = {}) {
+    const el = document.createElement('div');
+    el.className = 'panel bh-import-panel';
+    el.innerHTML = `<div class="bar"><h3>${escHtml(title)}</h3></div><div class="body"><div class="scroll">${html}</div></div>`;
+    BEHIND.appendChild(el);
+    const p = {
+      el, id: UID++, type: 'panel',
+      def: { title, file: 'local-import://' + title },
+      x: innerWidth * (opts.x || 0.52), y: innerHeight * (opts.y || 0.44),
+      scale: 1, vx: 0, vy: 0, grabbedBy: [], ox: 0, oy: 0,
+      flying: false, stretch: null, scrollY: 0, body: el.querySelector('.scroll')
+    };
+    p.anim = { k:'in', t:0 };
+    p.el.style.opacity = '0.05';
+    items.push(p);
+    return p;
+  }
+
+  async function pdfToHtml(file) {
+    await loadScript('https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js', () => window.pdfjsLib);
+    window.pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+    const pdf = await window.pdfjsLib.getDocument({data: await file.arrayBuffer()}).promise;
+    let out = '';
+    for (let n=1; n<=pdf.numPages; n++) {
+      const pg = await pdf.getPage(n);
+      const tc = await pg.getTextContent();
+      const text = tc.items.map(x => x.str).join(' ');
+      out += `<div class="page-sep">PAGE ${n} / ${pdf.numPages}</div><div>${renderNote(text)}</div>`;
+    }
+    return out || '(empty PDF)';
+  }
+
+  async function docxToHtml(file) {
+    await loadScript('https://cdn.jsdelivr.net/npm/mammoth@1.8.0/mammoth.browser.min.js', () => window.mammoth);
+    const r = await window.mammoth.extractRawText({arrayBuffer: await file.arrayBuffer()});
+    return renderNote(r.value || '(empty Word document)');
+  }
+
+  async function excelToHtml(file) {
+    await loadScript('https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js', () => window.XLSX);
+    const wb = window.XLSX.read(await file.arrayBuffer(), {type:'array'});
+    return wb.SheetNames.map(name => {
+      const ws = wb.Sheets[name];
+      const rows = window.XLSX.utils.sheet_to_json(ws, {header:1, raw:false, defval:''});
+      const table = rows.map((r,ri) => '<tr>'+r.map(v => (ri===0?'<th>':'<td>')+escHtml(v)+(ri===0?'</th>':'</td>')).join('')+'</tr>').join('');
+      return `<div class="sheet"><h4>${escHtml(name)}</h4><table>${table || '<tr><td>(empty sheet)</td></tr>'}</table></div>`;
+    }).join('');
+  }
+
+  async function pptxToHtml(file) {
+    await loadScript('https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js', () => window.JSZip);
+    const zip = await window.JSZip.loadAsync(await file.arrayBuffer());
+    const slides = Object.keys(zip.files).filter(n => /^ppt\/slides\/slide\d+\.xml$/.test(n))
+      .sort((a,b) => (+a.match(/slide(\d+)/)[1])-(+b.match(/slide(\d+)/)[1]));
+    let out = '';
+    for (let i=0;i<slides.length;i++) {
+      const xml = await zip.file(slides[i]).async('string');
+      const doc = new DOMParser().parseFromString(xml,'application/xml');
+      const text = [...doc.getElementsByTagNameNS('*','t')].map(n=>n.textContent).join('\n');
+      out += `<div class="page-sep">SLIDE ${i+1} / ${slides.length}</div><div>${renderNote(text || '(empty slide)')}</div>`;
+    }
+    return out || '(empty PowerPoint)';
+  }
+
+  async function fileToPanel(file, idx=0) {
+    const ext = extOf(file.name);
+    const lowerType = (file.type || '').toLowerCase();
+    let html = '';
+    if (ext === 'pdf') html = await pdfToHtml(file);
+    else if (ext === 'docx') html = await docxToHtml(file);
+    else if (['xlsx','xls','csv'].includes(ext)) html = await excelToHtml(file);
+    else if (ext === 'pptx') html = await pptxToHtml(file);
+    else if (['txt','md','log','json','xml'].includes(ext) || lowerType.startsWith('text/')) {
+      html = renderNote(await file.text());
+    } else if (lowerType.startsWith('image/') || ['png','jpg','jpeg','webp','gif'].includes(ext)) {
+      const url = URL.createObjectURL(file);
+      html = `<img src="${url}" alt="${escHtml(file.name)}">`;
+    } else if (lowerType.startsWith('video/') || ['mp4','webm','mov','m4v','avi'].includes(ext)) {
+      const url = URL.createObjectURL(file);
+      html = `<video src="${url}" controls playsinline></video>`;
+    } else {
+      html = renderNote(`Unsupported preview type.\n\nFile: ${file.name}\nType: ${file.type || 'unknown'}\nSize: ${Math.round(file.size/1024)} KB`);
+    }
+    const p = addImportedPanel(file.name, html, { x: 0.48 + Math.min(idx,4)*0.035, y: 0.42 + Math.min(idx,4)*0.025 });
+    toast('imported: ' + file.name, 1300);
+    return p;
+  }
+
+  impInput.addEventListener('change', async () => {
+    const fs = [...impInput.files];
+    impInput.value = '';
+    for (let i=0;i<fs.length;i++) {
+      try { await fileToPanel(fs[i], i); }
+      catch (e) {
+        console.error(e);
+        addImportedPanel(fs[i].name, renderNote('Could not preview this file.\n\n' + (e.message || e)));
+        toast('import failed: ' + fs[i].name, 2200);
+      }
+    }
+  });
+
+  addEventListener('keydown', e => {
+    if ((e.key === 'i' || e.key === 'I') && !e.ctrlKey && !e.metaKey && !e.altKey) impInput.click();
+  });
+}
